@@ -3,40 +3,25 @@ library(readxl)
 library(janitor)
 library(tidymodels)
 
-dado <- read_excel("d:/temp/TrainExer13.xls") %>% 
-  clean_names()
-
-
-grafico <- ggplot(dado,
-       aes(
-         x = game,
-         y = winning_time_men
-       )
-) +
-  geom_line(color = "darkblue", size = 1) +
-  geom_point( color = "darkblue", size = 2) +
-  geom_smooth(method = "lm", se = FALSE, color = "darkgreen", size = 1) +
-  geom_smooth(formula = y ~ poly(x, 2), method = "lm", color = "darkred", se = FALSE ) +
-  theme_minimal()
-
-grafico
+dado <- read_excel("data/TrainExer15.xls") %>% 
+  clean_names() 
 
 lm_mod <- linear_reg() %>% 
   set_engine("lm") 
 
-
-dados_novos <- tribble(
-  ~game, ~winning_time_men,
-  16,    9.69,
-  17,    9.63,
-  18,    9.81
+dados_novos <- tibble(
+  game = 16:200
 )
+
 
 
 formulas <- tibble(
-  formula = c(winning_time_men ~ game, winning_time_men ~ poly(game,2) ),
-  tipo_formula = c("linear", "quadratica")
+  formula = c(winning_time_men ~ game, log(winning_time_men) ~ game, winning_time_women ~ game, log(winning_time_women) ~ game ),
+  tipo_formula = c("men_linear", "men_log", "women_linear", "women_log"),
+  revert_outcome = c(identity, exp, identity, exp  )
 )
+
+
 
 resultados_modelos <- formulas %>% 
   mutate(
@@ -50,66 +35,67 @@ resultados_modelos <- formulas %>%
     glance = glance(fit$fit)
   ) %>% 
   mutate(
-    preds = list(predict(fit, new_data = dados_novos)),
+    augment = list(augment(fit$fit))
+  ) %>% 
+  mutate(
+    preds = list(predict(fit, new_data = dados_novos) %>% revert_outcome  ),
     games = list(dados_novos$game),
-    winning_times_men = list(dados_novos$winning_time_men),
-    r2 = rsq_vec(estimate = preds$.pred, truth = dados_novos$winning_time_men)
-  ) 
+  )
 
 
 complemento_dados_novos <- resultados_modelos %>% 
   select(
     tipo_formula,
-    winning_times_men,
     preds,
     games
   ) %>% 
-  unnest(c(preds, games, winning_times_men)) 
+  unnest(c(preds, games))  %>% 
+  mutate(
+    year = min(dado$year) + (games-1) *4
+  ) %>% 
+  separate(
+    col = tipo_formula,
+    into = c("gender", "model"),
+    sep = "_"
+  )
 
 
-grafico_resultado <- grafico +
+cruzam <- complemento_dados_novos %>% 
+  pivot_wider(
+    names_from = gender,
+    values_from = .pred
+  ) %>% 
+  group_by(
+    model
+  ) %>% 
+  arrange(year) %>% 
+  filter(
+    men >= women
+  ) %>% 
+  slice_head()
+
+
+grafico_resultado <- ggplot(complemento_dados_novos) +
   geom_point(
-    data = complemento_dados_novos,
-    color = "blue",
-    size = 2.5,
     aes(
-      x = games,
-      y = winning_times_men
+      x = year,
+      y = .pred,
+      color = gender
     )
   ) +
   geom_line(
-    data = complemento_dados_novos,
-    size = 0.8,
-    color = "blue",
     aes(
-      x = games,
-      y = winning_times_men
-    )
-  ) +
-  geom_point(
-    data = complemento_dados_novos,
-    aes(
-      x = games,
+      x = year,
       y = .pred,
-      color = tipo_formula
+      color = gender
     )
   ) +
-  scale_color_manual(
-    values = c("linear" = "darkgreen", "quadratica" = "darkred")
+  facet_wrap(
+    ~model
   )
-
   
+
 grafico_resultado
-
-
-
-
-
-
-
-
-
-
 
 
 
